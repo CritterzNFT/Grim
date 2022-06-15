@@ -10,10 +10,10 @@ public enum GrimAPI {
     INSTANCE;
 
     private final SpectateManager spectateManager = new SpectateManager();
-    private final PlayerDataManager playerDataManager = new PlayerDataManager();
-    private final InitManager initManager = new InitManager();
-    private final TickManager tickManager = new TickManager();
     private final DiscordManager discordManager = new DiscordManager();
+    private final PlayerDataManager playerDataManager = new PlayerDataManager();
+    private final TickManager tickManager = new TickManager();
+    private InitManager initManager;
 
     private ConfigManager configManager;
     private AlertManager alertManager;
@@ -23,6 +23,7 @@ public enum GrimAPI {
         this.plugin = plugin;
         this.configManager = new ConfigManager();
         this.alertManager = new AlertManager();
+        initManager = new InitManager();
         initManager.load();
     }
 
