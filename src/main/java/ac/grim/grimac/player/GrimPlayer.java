@@ -22,6 +22,7 @@ import ac.grim.grimac.utils.nmsutil.GetBoundingBox;
 import com.github.retrooper.packetevents.PacketEvents;
 import com.github.retrooper.packetevents.event.PacketSendEvent;
 import com.github.retrooper.packetevents.manager.server.ServerVersion;
+import com.github.retrooper.packetevents.netty.channel.ChannelHelper;
 import com.github.retrooper.packetevents.protocol.ConnectionState;
 import com.github.retrooper.packetevents.protocol.entity.type.EntityTypes;
 import com.github.retrooper.packetevents.protocol.player.ClientVersion;
@@ -132,6 +133,7 @@ public class GrimPlayer {
     public boolean isDead = false;
     public int food = 20;
     public float depthStriderLevel;
+    public float sneakingSpeedMultiplier = 0.3f;
     public float flySpeed;
     public VehicleData vehicleData = new VehicleData();
     // The client claims this
@@ -350,7 +352,7 @@ public class GrimPlayer {
         if (user.getConnectionState() != ConnectionState.PLAY) return;
 
         // Send a packet once every 15 seconds to avoid any memory leaks
-        if (disableGrim && (System.nanoTime() - getPlayerClockAtLeast()) > 15e9 ) {
+        if (disableGrim && (System.nanoTime() - getPlayerClockAtLeast()) > 15e9) {
             return;
         }
 
@@ -367,7 +369,7 @@ public class GrimPlayer {
             }
 
             if (async) {
-                PacketEvents.getAPI().getProtocolManager().writePacketAsync(user.getChannel(), packet);
+                ChannelHelper.runInEventLoop(user.getChannel(), () -> user.writePacket(packet));
             } else {
                 user.writePacket(packet);
             }
@@ -453,6 +455,23 @@ public class GrimPlayer {
             return ClientVersion.getById(PacketEvents.getAPI().getServerManager().getVersion().getProtocolVersion());
         }
         return ver;
+    }
+
+    // Alright, someone at mojang decided to not send a flying packet every tick with 1.9
+    // Thanks for wasting my time to save 1 MB an hour
+    //
+    // MEANING, to get an "acceptable" 1.9+ reach check, we must only treat it like a 1.8 clients
+    // when it is acting like one and sending a packet every tick.
+    //
+    // There are two predictable scenarios where this happens:
+    // 1. The player moves more than 0.03/0.0002 blocks every tick
+    //     - This code runs after the prediction engine to prevent a false when immediately switching back to 1.9-like movements
+    //     - 3 ticks is a magic value, but it should buffer out incorrect predictions somewhat.
+    // 2. The player is in a vehicle
+    public boolean isTickingReliablyFor(int ticks) {
+        return (!uncertaintyHandler.lastPointThree.hasOccurredSince(ticks))
+                || compensatedEntities.getSelf().inVehicle()
+                || getClientVersion().isOlderThan(ClientVersion.V_1_9);
     }
 
     public CompensatedInventory getInventory() {
