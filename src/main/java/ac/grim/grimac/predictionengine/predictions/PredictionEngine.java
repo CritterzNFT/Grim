@@ -4,6 +4,7 @@ import ac.grim.grimac.player.GrimPlayer;
 import ac.grim.grimac.predictionengine.SneakingEstimator;
 import ac.grim.grimac.predictionengine.movementtick.MovementTickerPlayer;
 import ac.grim.grimac.utils.collisions.datatypes.SimpleCollisionBox;
+import ac.grim.grimac.utils.data.Pair;
 import ac.grim.grimac.utils.data.VectorData;
 import ac.grim.grimac.utils.math.GrimMath;
 import ac.grim.grimac.utils.math.VectorUtils;
@@ -13,25 +14,26 @@ import ac.grim.grimac.utils.nmsutil.JumpPower;
 import ac.grim.grimac.utils.nmsutil.Riptide;
 import com.github.retrooper.packetevents.protocol.entity.type.EntityTypes;
 import com.github.retrooper.packetevents.protocol.player.ClientVersion;
+import org.bukkit.Bukkit;
 import org.bukkit.util.Vector;
 
 import java.util.*;
 
 public class PredictionEngine {
 
-    public static Vector clampMovementToHardBorder(GrimPlayer player, Vector outputVel, Vector handleHardCodedBorder) {
+    public static Vector clampMovementToHardBorder(GrimPlayer player, Vector outputVel) {
         if (!player.compensatedEntities.getSelf().inVehicle()) {
             double d0 = GrimMath.clamp(player.lastX + outputVel.getX(), -2.9999999E7D, 2.9999999E7D);
             double d1 = GrimMath.clamp(player.lastZ + outputVel.getZ(), -2.9999999E7D, 2.9999999E7D);
-            if (d0 != player.lastX + handleHardCodedBorder.getX()) {
-                handleHardCodedBorder = new Vector(d0 - player.lastX, handleHardCodedBorder.getY(), handleHardCodedBorder.getZ());
+            if (d0 != player.lastX + outputVel.getX()) {
+                outputVel = new Vector(d0 - player.lastX, outputVel.getY(), outputVel.getZ());
             }
 
-            if (d1 != player.lastZ + handleHardCodedBorder.getZ()) {
-                handleHardCodedBorder = new Vector(handleHardCodedBorder.getX(), handleHardCodedBorder.getY(), d1 - player.lastZ);
+            if (d1 != player.lastZ + outputVel.getZ()) {
+                outputVel = new Vector(outputVel.getX(), outputVel.getY(), d1 - player.lastZ);
             }
         }
-        return handleHardCodedBorder;
+        return outputVel;
     }
 
     public static Vector transformInputsToVector(GrimPlayer player, Vector theoreticalInput) {
@@ -106,12 +108,7 @@ public class PredictionEngine {
     }
 
     private void doPredictions(GrimPlayer player, List<VectorData> possibleVelocities, float speed) {
-        // Sorting is an optimization and a requirement
-        //
-        // TODO: Sorting is unnecessary and slow!
-        // We KNOW the order that we should run things anyways! Use it instead! No lists needed!
-        // Will be a good performance boost!  Although not essential as right now there's larger issues
-        // than a lost hundredth millisecond here and there. Readability/Accuracy > Performance currently.
+        // Computers are actually really fast at sorting, I don't see sorting as a problem
         possibleVelocities.sort((a, b) -> sortVectorData(a, b, player));
 
         player.checkManager.getPostPredictionCheck(SneakingEstimator.class).storePossibleVelocities(possibleVelocities);
@@ -135,8 +132,9 @@ public class PredictionEngine {
             Vector bestTheoreticalCollisionResult = VectorUtils.cutBoxToVector(player.actualMovement, new SimpleCollisionBox(0, Math.min(0, primaryPushMovement.getY()), 0, primaryPushMovement.getX(), Math.max(0.6, primaryPushMovement.getY()), primaryPushMovement.getZ()).sort());
             // Check if this vector could ever possible beat the last vector in terms of accuracy
             // This is quite a good optimization :)
-            if (bestTheoreticalCollisionResult.distanceSquared(player.actualMovement) > bestInput && !clientVelAfterInput.isKnockback() && !clientVelAfterInput.isExplosion())
+            if (bestTheoreticalCollisionResult.distanceSquared(player.actualMovement) > bestInput && !clientVelAfterInput.isKnockback() && !clientVelAfterInput.isExplosion()) {
                 continue;
+            }
 
             if (clientVelAfterInput.isZeroPointZeroThree()) {
                 player.boundingBox = pointThreeThanksMojang;
@@ -144,41 +142,12 @@ public class PredictionEngine {
                 player.boundingBox = originalBB;
             }
 
-            boolean vehicleKB = player.compensatedEntities.getSelf().inVehicle() && clientVelAfterInput.isKnockback() && clientVelAfterInput.vector.getY() == 0;
-            // Extra collision epsilon required for vehicles to be accurate
-            double xAdditional = Math.signum(primaryPushMovement.getX()) * SimpleCollisionBox.COLLISION_EPSILON;
-            // The server likes sending y=0 kb "lifting" the player off the ground.
-            // The client doesn't send the vehicles onGround status, so we can't check for ground like normal.
-            double yAdditional = vehicleKB ? 0 : (primaryPushMovement.getY() > 0 ? 1 : -1) * SimpleCollisionBox.COLLISION_EPSILON;
-            double zAdditional = Math.signum(primaryPushMovement.getZ()) * SimpleCollisionBox.COLLISION_EPSILON;
+            // Returns pair of primary push movement, and then outputvel
+            Pair<Vector, Vector> output = doSeekingWallCollisions(player, primaryPushMovement, originalClientVel, clientVelAfterInput);
+            primaryPushMovement = output.getFirst();
+            Vector outputVel = clampMovementToHardBorder(player, output.getSecond());
 
-            // Expand by the collision epsilon to test if the player collided with a block (as this resets the velocity in that direction)
-            double testX = primaryPushMovement.getX() + xAdditional;
-            double testY = primaryPushMovement.getY() + yAdditional;
-            double testZ = primaryPushMovement.getZ() + zAdditional;
-            primaryPushMovement = new Vector(testX, testY, testZ);
-
-            Vector outputVel = Collisions.collide(player, primaryPushMovement.getX(), primaryPushMovement.getY(), primaryPushMovement.getZ(), originalClientVel.getY(), clientVelAfterInput);
-
-            if (testX == outputVel.getX()) { // the player didn't have X collision, don't ruin offset by collision epsilon
-                primaryPushMovement.setX(primaryPushMovement.getX() - xAdditional);
-                outputVel.setX(outputVel.getX() - xAdditional);
-            }
-
-            if (testY == outputVel.getY()) { // the player didn't have Y collision, don't ruin offset by collision epsilon
-                primaryPushMovement.setY(primaryPushMovement.getY() - yAdditional);
-                outputVel.setY(outputVel.getY() - yAdditional);
-            }
-
-            if (testZ == outputVel.getZ()) { // the player didn't have Z collision, don't ruin offset by collision epsilon
-                primaryPushMovement.setZ(primaryPushMovement.getZ() - zAdditional);
-                outputVel.setZ(outputVel.getZ() - zAdditional);
-            }
-
-            Vector handleHardCodedBorder = outputVel;
-            handleHardCodedBorder = clampMovementToHardBorder(player, outputVel, handleHardCodedBorder);
-
-            double resultAccuracy = handleHardCodedBorder.distanceSquared(player.actualMovement);
+            double resultAccuracy = outputVel.distanceSquared(player.actualMovement);
 
             // Check if this possiblity is zero point zero three and is "close enough" to the player's actual movement
             if (clientVelAfterInput.isZeroPointZeroThree() && resultAccuracy < 0.001 * 0.001) {
@@ -187,7 +156,11 @@ public class PredictionEngine {
 
             // This allows us to always check the percentage of knockback taken
             // A player cannot simply ignore knockback without us measuring how off it was
-            if (clientVelAfterInput.isKnockback() || clientVelAfterInput.isExplosion()) {
+            //
+            // Exempt if the player
+            if ((clientVelAfterInput.isKnockback() || clientVelAfterInput.isExplosion()) && !clientVelAfterInput.isZeroPointZeroThree()) {
+                boolean wasVelocityPointThree = player.pointThreeEstimator.determineCanSkipTick(speed, new HashSet<>(Collections.singletonList(clientVelAfterInput)));
+
                 // Check ONLY the knockback vectors for 0.03
                 // The first being the one without uncertainty
                 // And the last having uncertainty to deal with 0.03
@@ -196,12 +169,12 @@ public class PredictionEngine {
                 // There's much larger performance design issues than losing a few nanoseconds here and there.
                 if (clientVelAfterInput.isKnockback()) {
                     player.checkManager.getKnockbackHandler().handlePredictionAnalysis(Math.sqrt(player.uncertaintyHandler.reduceOffset(resultAccuracy)));
-                    player.checkManager.getKnockbackHandler().setPointThree(player.pointThreeEstimator.determineCanSkipTick(speed, new HashSet<>(Collections.singletonList(clientVelAfterInput))));
+                    player.checkManager.getKnockbackHandler().setPointThree(wasVelocityPointThree);
                 }
 
                 if (clientVelAfterInput.isExplosion()) {
                     player.checkManager.getExplosionHandler().handlePredictionAnalysis(Math.sqrt(player.uncertaintyHandler.reduceOffset(resultAccuracy)));
-                    player.checkManager.getExplosionHandler().setPointThree(player.pointThreeEstimator.determineCanSkipTick(speed, new HashSet<>(Collections.singletonList(clientVelAfterInput))));
+                    player.checkManager.getExplosionHandler().setPointThree(wasVelocityPointThree);
                 }
             }
 
@@ -240,6 +213,41 @@ public class PredictionEngine {
         if (player.predictedVelocity.isZeroPointZeroThree()) {
             player.skippedTickInActualMovement = true;
         }
+    }
+
+    private Pair<Vector, Vector> doSeekingWallCollisions(GrimPlayer player, Vector primaryPushMovement, Vector originalClientVel, VectorData clientVelAfterInput) {
+        boolean vehicleKB = player.compensatedEntities.getSelf().inVehicle() && clientVelAfterInput.isKnockback() && clientVelAfterInput.vector.getY() == 0;
+        // Extra collision epsilon required for vehicles to be accurate
+        double xAdditional = Math.signum(primaryPushMovement.getX()) * SimpleCollisionBox.COLLISION_EPSILON;
+        // The server likes sending y=0 kb "lifting" the player off the ground.
+        // The client doesn't send the vehicles onGround status, so we can't check for ground like normal.
+        double yAdditional = vehicleKB ? 0 : (primaryPushMovement.getY() > 0 ? 1 : -1) * SimpleCollisionBox.COLLISION_EPSILON;
+        double zAdditional = Math.signum(primaryPushMovement.getZ()) * SimpleCollisionBox.COLLISION_EPSILON;
+
+        // Expand by the collision epsilon to test if the player collided with a block (as this resets the velocity in that direction)
+        double testX = primaryPushMovement.getX() + xAdditional;
+        double testY = primaryPushMovement.getY() + yAdditional;
+        double testZ = primaryPushMovement.getZ() + zAdditional;
+        primaryPushMovement = new Vector(testX, testY, testZ);
+
+        Vector outputVel = Collisions.collide(player, primaryPushMovement.getX(), primaryPushMovement.getY(), primaryPushMovement.getZ(), originalClientVel.getY(), clientVelAfterInput);
+
+        if (testX == outputVel.getX()) { // the player didn't have X collision, don't ruin offset by collision epsilon
+            primaryPushMovement.setX(primaryPushMovement.getX() - xAdditional);
+            outputVel.setX(outputVel.getX() - xAdditional);
+        }
+
+        if (testY == outputVel.getY()) { // the player didn't have Y collision, don't ruin offset by collision epsilon
+            primaryPushMovement.setY(primaryPushMovement.getY() - yAdditional);
+            outputVel.setY(outputVel.getY() - yAdditional);
+        }
+
+        if (testZ == outputVel.getZ()) { // the player didn't have Z collision, don't ruin offset by collision epsilon
+            primaryPushMovement.setZ(primaryPushMovement.getZ() - zAdditional);
+            outputVel.setZ(outputVel.getZ() - zAdditional);
+        }
+
+        return new Pair<>(primaryPushMovement, outputVel);
     }
 
     // 0.03 has some quite bad interactions with velocity + explosions (one extremely stupid line of code... thanks mojang)

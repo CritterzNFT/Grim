@@ -2,10 +2,10 @@ package ac.grim.grimac.manager;
 
 import ac.grim.grimac.GrimAPI;
 import ac.grim.grimac.checks.Check;
+import ac.grim.grimac.events.CommandExecuteEvent;
 import ac.grim.grimac.player.GrimPlayer;
 import ac.grim.grimac.utils.anticheat.LogUtil;
 import ac.grim.grimac.utils.anticheat.MessageUtil;
-import ac.grim.grimac.utils.events.CommandExecuteEvent;
 import github.scarsz.configuralize.DynamicConfig;
 import lombok.Getter;
 import lombok.Setter;
@@ -42,7 +42,9 @@ public class PunishmentManager {
                 for (String command : checks) {
                     command = command.toLowerCase(Locale.ROOT);
                     for (Check check : player.checkManager.allChecks.values()) { // o(n) * o(n)?
-                        if (check.getCheckName() != null && check.getCheckName().toLowerCase(Locale.ROOT).contains(command)) {
+                        if (check.getCheckName() != null &&
+                                (check.getCheckName().toLowerCase(Locale.ROOT).contains(command)
+                                        || check.getAlternativeName().toLowerCase(Locale.ROOT).contains(command))) { // Some checks have equivalent names like AntiKB and AntiKnockback
                             checksList.add(check);
                         }
                     }
@@ -91,7 +93,7 @@ public class PunishmentManager {
                             cmd = cmd.replace("%vl%", vl);
                             cmd = cmd.replace("%verbose%", verbose);
 
-                            CommandExecuteEvent executeEvent = new CommandExecuteEvent(check, cmd);
+                            CommandExecuteEvent executeEvent = new CommandExecuteEvent(player, check, cmd);
                             Bukkit.getPluginManager().callEvent(executeEvent);
                             if (executeEvent.isCancelled()) continue;
 

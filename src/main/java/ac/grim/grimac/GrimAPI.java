@@ -3,6 +3,8 @@ package ac.grim.grimac;
 import ac.grim.grimac.manager.*;
 import ac.grim.grimac.utils.anticheat.PlayerDataManager;
 import lombok.Getter;
+import org.bukkit.Bukkit;
+import org.bukkit.plugin.ServicePriority;
 import org.bukkit.plugin.java.JavaPlugin;
 
 @Getter
@@ -14,7 +16,7 @@ public enum GrimAPI {
     private final PlayerDataManager playerDataManager = new PlayerDataManager();
     private final TickManager tickManager = new TickManager();
     private InitManager initManager;
-
+    private GrimExternalAPI externalAPI;
     private ConfigManager configManager;
     private AlertManager alertManager;
     private JavaPlugin plugin;
@@ -30,6 +32,8 @@ public enum GrimAPI {
     public void start(final JavaPlugin plugin) {
         this.plugin = plugin;
         initManager.start();
+        externalAPI = new GrimExternalAPI(this);
+        Bukkit.getServicesManager().register(GrimAbstractAPI.class, externalAPI, plugin, ServicePriority.Normal);
     }
 
     public void stop(final JavaPlugin plugin) {
