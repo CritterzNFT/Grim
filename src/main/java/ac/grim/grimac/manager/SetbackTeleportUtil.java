@@ -89,12 +89,12 @@ public class SetbackTeleportUtil extends PostPredictionCheck {
         if (player.gamemode == GameMode.SPECTATOR || player.disableGrim) return; // We don't care about spectators, they don't flag
         blockOffsets = true;
         if (safeTeleportPosition == null) return; // Player hasn't spawned yet
-        blockMovementsUntilResync(safeTeleportPosition.position);
+        blockMovementsUntilResync(safeTeleportPosition.position, false, true);
     }
 
-    public boolean executeViolationSetback() {
+    public boolean executeViolationSetback(boolean force) {
         if (isExempt()) return false;
-        blockMovementsUntilResync(safeTeleportPosition.position);
+        blockMovementsUntilResync(safeTeleportPosition.position, force, true);
         return true;
     }
 
@@ -109,15 +109,7 @@ public class SetbackTeleportUtil extends PostPredictionCheck {
         return false;
     }
 
-    public void blockMovementsUntilResync(Location position) {
-        blockMovementsUntilResync(position, false);
-    }
-
-    public void blockMovementsUntilResync(Location position, boolean force) {
-        blockMovementsUntilResync(position, force, true);
-    }
-
-    public void blockMovementsUntilResync(Location position, boolean force, boolean simulateNextTickPosition) {
+    private void blockMovementsUntilResync(Location position, boolean force, boolean simulateNextTickPosition) {
         if (requiredSetBack == null || player.bukkitPlayer == null)
             return; // Player hasn't gotten a single teleport yet.
         requiredSetBack.setPlugin(false); // The player has illegal movement, block from vanilla ac override
@@ -262,9 +254,9 @@ public class SetbackTeleportUtil extends PostPredictionCheck {
             TeleportData teleportPos = teleports.peek();
             if (teleportPos == null) break;
 
-            double trueTeleportX = (requiredSetBack.getTeleportData().isRelativeX() ? player.x : 0) + requiredSetBack.getTeleportData().getLocation().getX();
-            double trueTeleportY = (requiredSetBack.getTeleportData().isRelativeY() ? player.y : 0) + requiredSetBack.getTeleportData().getLocation().getY();
-            double trueTeleportZ = (requiredSetBack.getTeleportData().isRelativeZ() ? player.z : 0) + requiredSetBack.getTeleportData().getLocation().getZ();
+            double trueTeleportX = (teleportPos.isRelativeX() ? player.x : 0) + teleportPos.getLocation().getX();
+            double trueTeleportY = (teleportPos.isRelativeY() ? player.y : 0) + teleportPos.getLocation().getY();
+            double trueTeleportZ = (teleportPos.isRelativeZ() ? player.z : 0) + teleportPos.getLocation().getZ();
 
             if (lastTransaction < teleportPos.getTransaction()) {
                 break;
@@ -272,7 +264,7 @@ public class SetbackTeleportUtil extends PostPredictionCheck {
 
             // There seems to be a version difference in teleports past 30 million... just clamp the vector
             Vector3d clamped = VectorUtils.clampVector(new Vector3d(trueTeleportX, trueTeleportY, trueTeleportZ));
-            double threshold = requiredSetBack.getTeleportData().isRelativeX() ? player.getMovementThreshold() : 0;
+            double threshold = teleportPos.isRelativeX() ? player.getMovementThreshold() : 0;
             boolean closeEnoughY = Math.abs(clamped.getY() - y) <= 1e-7 + threshold; // 1.7 rounding
 
             if (Math.abs(clamped.getX() - x) <= threshold && closeEnoughY && Math.abs(clamped.getZ() - z) <= threshold) {

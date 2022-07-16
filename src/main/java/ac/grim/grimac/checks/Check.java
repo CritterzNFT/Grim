@@ -21,6 +21,8 @@ public class Check implements AbstractCheck {
     private String configName;
     private String alternativeName;
 
+    private boolean experimental;
+
     public Check(final GrimPlayer player) {
         this.player = player;
 
@@ -35,23 +37,27 @@ public class Check implements AbstractCheck {
             this.decay = checkData.decay();
             this.setbackVL = checkData.setback();
             this.alternativeName = checkData.alternativeName();
+            this.experimental = checkData.experimental();
         }
 
         reload();
     }
 
-    public void flagAndAlert(String verbose) {
+    public final boolean flagAndAlert(String verbose) {
         if (flag()) {
             alert(verbose);
+            return true;
         }
+        return false;
     }
 
-    public void flagAndAlert() {
-        flagAndAlert("");
+    public final boolean flagAndAlert() {
+        return flagAndAlert("");
     }
 
     public final boolean flag() {
-        if (player.disableGrim) return false; // Avoid calling event if disabled
+        if (player.disableGrim || (experimental && !GrimAPI.INSTANCE.getConfigManager().isExperimentalChecks()))
+            return false; // Avoid calling event if disabled
 
         FlagEvent event = new FlagEvent(player, this);
         Bukkit.getPluginManager().callEvent(event);
@@ -64,10 +70,12 @@ public class Check implements AbstractCheck {
         return true;
     }
 
-    public final void flagWithSetback() {
+    public final boolean flagWithSetback() {
         if (flag()) {
             setbackIfAboveSetbackVL();
+            return true;
         }
+        return false;
     }
 
     public final void reward() {
@@ -81,8 +89,8 @@ public class Check implements AbstractCheck {
         if (setbackVL == -1) setbackVL = Double.MAX_VALUE;
     }
 
-    public void alert(String verbose) {
-        player.punishmentManager.handleAlert(player, verbose, this);
+    public boolean alert(String verbose) {
+        return player.punishmentManager.handleAlert(player, verbose, this);
     }
 
     public DynamicConfig getConfig() {
@@ -91,7 +99,7 @@ public class Check implements AbstractCheck {
 
     public boolean setbackIfAboveSetbackVL() {
         if (getViolations() > setbackVL) {
-            return player.getSetbackTeleportUtil().executeViolationSetback();
+            return player.getSetbackTeleportUtil().executeViolationSetback(false);
         }
         return false;
     }

@@ -12,6 +12,7 @@ import com.github.retrooper.packetevents.manager.server.ServerVersion;
 import com.github.retrooper.packetevents.protocol.entity.data.EntityData;
 import com.github.retrooper.packetevents.protocol.entity.type.EntityType;
 import com.github.retrooper.packetevents.protocol.entity.type.EntityTypes;
+import com.github.retrooper.packetevents.protocol.player.ClientVersion;
 import com.github.retrooper.packetevents.protocol.potion.PotionType;
 import com.github.retrooper.packetevents.protocol.potion.PotionTypes;
 import com.github.retrooper.packetevents.protocol.world.BlockFace;
@@ -76,7 +77,7 @@ public class CompensatedEntities {
     }
 
     public Integer getSlowFallingAmplifier() {
-        return getPotionLevelForPlayer(PotionTypes.SLOW_FALLING);
+        return player.getClientVersion().isOlderThanOrEquals(ClientVersion.V_1_12_2) ? null : getPotionLevelForPlayer(PotionTypes.SLOW_FALLING);
     }
 
     public Integer getDolphinsGraceAmplifier() {
@@ -311,9 +312,11 @@ public class CompensatedEntities {
             if (height != null) {
                 if ((byte) height.getValue() == 0) {
                     ShulkerData data = new ShulkerData(entity, player.lastTransactionSent.get(), true);
+                    player.compensatedWorld.openShulkerBoxes.remove(data);
                     player.compensatedWorld.openShulkerBoxes.add(data);
                 } else {
                     ShulkerData data = new ShulkerData(entity, player.lastTransactionSent.get(), false);
+                    player.compensatedWorld.openShulkerBoxes.remove(data);
                     player.compensatedWorld.openShulkerBoxes.add(data);
                 }
             }

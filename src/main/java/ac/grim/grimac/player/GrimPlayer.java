@@ -3,6 +3,8 @@ package ac.grim.grimac.player;
 import ac.grim.grimac.AbstractCheck;
 import ac.grim.grimac.GrimAPI;
 import ac.grim.grimac.GrimUser;
+import ac.grim.grimac.checks.impl.aim.processor.AimProcessor;
+import ac.grim.grimac.checks.impl.misc.ClientBrand;
 import ac.grim.grimac.events.packets.CheckManagerListener;
 import ac.grim.grimac.manager.*;
 import ac.grim.grimac.manager.init.start.ViaBackwardsManager;
@@ -16,6 +18,7 @@ import ac.grim.grimac.utils.enums.FluidTag;
 import ac.grim.grimac.utils.enums.Pose;
 import ac.grim.grimac.utils.floodgate.FloodgateUtil;
 import ac.grim.grimac.utils.latency.*;
+import ac.grim.grimac.utils.math.GrimMath;
 import ac.grim.grimac.utils.math.TrigHandler;
 import ac.grim.grimac.utils.nmsutil.GetBoundingBox;
 import com.github.retrooper.packetevents.PacketEvents;
@@ -169,6 +172,7 @@ public class GrimPlayer implements GrimUser {
     // Keep track of basetick stuff
     public Vector baseTickAddition = new Vector();
     public Vector baseTickWaterPushing = new Vector();
+    public Vector startTickClientVel = new Vector();
     // For syncing the player's full swing in 1.9+
     public int movementPackets = 0;
     public VelocityData firstBreadKB = null;
@@ -182,6 +186,8 @@ public class GrimPlayer implements GrimUser {
     public Dimension dimension;
     public Vector3d bedPosition;
     public long lastBlockPlaceUseItem = 0;
+
+    public int attackTicks;
     public Queue<PacketWrapper<?>> placeUseItemPackets = new LinkedBlockingQueue<>();
     // This variable is for support with test servers that want to be able to disable grim
     // Grim disabler 2022 still working!
@@ -328,6 +334,9 @@ public class GrimPlayer implements GrimUser {
 
     public void baseTickAddVector(Vector vector) {
         clientVelocity.add(vector);
+    }
+
+    public void trackBaseTickAddition(Vector vector) {
         baseTickAddition.add(vector);
     }
 
@@ -489,7 +498,13 @@ public class GrimPlayer implements GrimUser {
     }
 
     public int getTransactionPing() {
-        return transactionPing;
+        return GrimMath.floor(transactionPing / 1e6);
+    }
+
+    @Override
+    public int getKeepAlivePing() {
+        if (bukkitPlayer == null) return -1;
+        return PacketEvents.getAPI().getPlayerManager().getPing(bukkitPlayer);
     }
 
     public long getPlayerClockAtLeast() {
@@ -580,6 +595,10 @@ public class GrimPlayer implements GrimUser {
         return getClientVersion().isOlderThanOrEquals(ClientVersion.V_1_10) || (gamemode == GameMode.CREATIVE && compensatedEntities.getSelf().getOpLevel() >= 2);
     }
 
+    public boolean shouldModifyPackets() {
+        return !disableGrim && (bukkitPlayer == null || !bukkitPlayer.hasPermission("grim.nomodifypacket"));
+    }
+
     @Override
     public void runSafely(Runnable runnable) {
         ChannelHelper.runInEventLoop(this.user.getChannel(), runnable);
@@ -596,7 +615,33 @@ public class GrimPlayer implements GrimUser {
     }
 
     @Override
+    public String getBrand() {
+        return checkManager.getPacketCheck(ClientBrand.class).getBrand();
+    }
+
+    @Override
+    public String getVersionName() {
+        return getClientVersion().getReleaseName();
+    }
+
+    @Override
+    public double getHorizontalSensitivity() {
+        return checkManager.getRotationCheck(AimProcessor.class).sensitivityX;
+    }
+
+    @Override
+    public double getVerticalSensitivity() {
+        return checkManager.getRotationCheck(AimProcessor.class).sensitivityY;
+    }
+
+    @Override
+    public boolean isVanillaMath() {
+        return trigHandler.isVanillaMath();
+    }
+
+    @Override
     public Collection<? extends AbstractCheck> getChecks() {
         return checkManager.allChecks.values();
     }
+
 }

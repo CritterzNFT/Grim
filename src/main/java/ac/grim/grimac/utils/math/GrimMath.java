@@ -6,7 +6,8 @@ import java.util.List;
 
 @UtilityClass
 public class GrimMath {
-    public static final double MINIMUM_DIVISOR = (Math.pow(0.2f, 3) * 8) - 1e-3; // 1e-3 for float imprecision
+    public static final double MINIMUM_DIVISOR = ((Math.pow(0.2f, 3) * 8) * 0.15) - 1e-3; // 1e-3 for float imprecision
+
 
     public static double gcd(double a, double b) {
         if (a == 0) return 0;
@@ -18,7 +19,7 @@ public class GrimMath {
             b = temp;
         }
 
-        while (b > MINIMUM_DIVISOR) { // Minimum minecraft sensitivity
+        while (a > MINIMUM_DIVISOR) { // Minimum minecraft sensitivity
             double temp = a - (Math.floor(a / b) * b);
             a = b;
             b = temp;
@@ -91,5 +92,13 @@ public class GrimMath {
     // Someone should likely just refactor this entire method, although it is cold being called twice every movement
     public static double distanceToHorizontalCollision(double position) {
         return Math.min(Math.abs(position % (1 / 640d)), Math.abs(Math.abs(position % (1 / 640d)) - (1 / 640d)));
+    }
+
+    public static boolean betweenRange(double value, double min, double max) {
+        return value > min && value < max;
+    }
+
+    public static boolean inRange(double value, double min, double max) {
+        return value >= min && value <= max;
     }
 }

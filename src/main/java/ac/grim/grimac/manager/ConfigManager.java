@@ -27,7 +27,10 @@ public class ConfigManager {
     @Getter
     private final File punishFile = new File(GrimAPI.INSTANCE.getPlugin().getDataFolder(), "punishments.yml");
     @Getter
-    private int maxPingTransaction = 120; // This is just a really hot variable so cache it.
+    private int maxPingTransaction = 60; // This is just a really hot variable so cache it.
+
+    @Getter
+    private boolean experimentalChecks = false;
 
     private final List<Pattern> ignoredClientPatterns = new ArrayList<>();
 
@@ -72,7 +75,7 @@ public class ConfigManager {
         } catch (Exception e) {
             throw new RuntimeException("Failed to load config", e);
         }
-        maxPingTransaction = config.getIntElse("max-ping.transaction", 120);
+        maxPingTransaction = config.getIntElse("max-transaction-time", 60);
         ignoredClientPatterns.clear();
         for (String string : config.getStringList("client-brand.ignored-clients")) {
             try {
@@ -81,6 +84,7 @@ public class ConfigManager {
                 throw new RuntimeException("Failed to compile client pattern", e);
             }
         }
+        experimentalChecks = config.getBooleanElse("experimental-checks", false);
     }
 
     public boolean isIgnoredClient(String brand) {
@@ -105,7 +109,7 @@ public class ConfigManager {
 
                     configVersion = Integer.parseInt(configStringVersion);
                     // TODO: Do we have to hardcode this?
-                    configString = configString.replaceAll("config-version: " + configStringVersion, "config-version: 4");
+                    configString = configString.replaceAll("config-version: " + configStringVersion, "config-version: 6");
                     Files.write(config.toPath(), configString.getBytes());
 
                     upgradeModernConfig(config, configString, configVersion);
@@ -131,6 +135,12 @@ public class ConfigManager {
         }
         if (configVersion < 4) {
             newOffsetNewDiscordConf(config, configString);
+        }
+        if (configVersion < 5) {
+            fixBadPacketsAndAdjustPingConfig(config, configString);
+        }
+        if (configVersion < 6) {
+            addSuperDebug(config, configString);
         }
     }
 
@@ -182,6 +192,25 @@ public class ConfigManager {
         }
     }
 
+    private void fixBadPacketsAndAdjustPingConfig(File config, String configString) {
+        try {
+            configString = configString.replaceAll("max-ping: \\d+", "max-transaction-time: 60");
+            Files.write(config.toPath(), configString.getBytes());
+        } catch (IOException ignored) {
+        }
+
+        File punishConfig = new File(GrimAPI.INSTANCE.getPlugin().getDataFolder(), "punishments.yml");
+        String punishConfigString;
+        if (punishConfig.exists()) {
+            try {
+                punishConfigString = new String(Files.readAllBytes(punishConfig.toPath()));
+                punishConfigString = punishConfigString.replace("command:", "commands:");
+                Files.write(punishConfig.toPath(), punishConfigString.getBytes());
+            } catch (IOException ignored) {
+            }
+        }
+    }
+
     private void addBaritoneCheck() {
         File config = new File(GrimAPI.INSTANCE.getPlugin().getDataFolder(), "punishments.yml");
         String configString;
@@ -215,6 +244,31 @@ public class ConfigManager {
                         "  - \"**Ping**: %ping%\"\n" +
                         "  - \"**TPS**: %tps%\"\n";
                 Files.write(discordFile.toPath(), discordString.getBytes());
+            } catch (IOException ignored) {
+            }
+        }
+    }
+
+    private void addSuperDebug(File config, String configString) throws IOException {
+        // The default config didn't have this change
+        configString = configString.replace("threshold: 0.0001", "threshold: 0.001"); // 1e-5 -> 1e-4 default flag level
+        if (!configString.contains("experimental-checks")) {
+            configString += "\n\n# Enables experimental checks\n" +
+                    "experimental-checks: false\n\n";
+        }
+        configString += "verbose:\n" +
+                "  print-to-console: false\n";
+        Files.write(config.toPath(), configString.getBytes());
+
+        File messageFile = new File(GrimAPI.INSTANCE.getPlugin().getDataFolder(), "messages.yml");
+        if (messageFile.exists()) {
+            try {
+                String messagesString = new String(Files.readAllBytes(messageFile.toPath()));
+                messagesString += "\n\nupload-log: \"%prefix% &fUploaded debug to: %url%\"\n" +
+                        "upload-log-start: \"%prefix% &fUploading log... please wait\"\n" +
+                        "upload-log-not-found: \"%prefix% &cUnable to find that log\"\n" +
+                        "upload-log-upload-failure: \"%prefix% &cSomething went wrong while uploading this log, see console for more info\"\n";
+                Files.write(messageFile.toPath(), messagesString.getBytes());
             } catch (IOException ignored) {
             }
         }

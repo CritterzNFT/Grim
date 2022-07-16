@@ -9,6 +9,7 @@ import com.github.retrooper.packetevents.protocol.packettype.PacketType;
 import com.github.retrooper.packetevents.util.Vector3f;
 import com.github.retrooper.packetevents.util.Vector3i;
 import com.github.retrooper.packetevents.wrapper.play.server.WrapperPlayServerExplosion;
+import org.bukkit.Bukkit;
 import org.bukkit.util.Vector;
 
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -57,6 +58,10 @@ public class ExplosionHandler extends PacketCheck {
                 event.getPostTasks().add(player::sendTransaction);
             }
         }
+    }
+
+    public boolean wouldFlag() {
+        return (player.likelyExplosions != null && player.likelyExplosions.offset > offsetToFlag) || (player.firstBreadExplosion != null && player.firstBreadExplosion.offset > offsetToFlag);
     }
 
     public void addPlayerExplosion(int breadOne, Vector3f explosion) {
@@ -145,7 +150,7 @@ public class ExplosionHandler extends PacketCheck {
             if (player.likelyExplosions.offset > offsetToFlag) {
                 if (flag()) {
                     if (getViolations() > setbackVL) {
-                        player.getSetbackTeleportUtil().blockMovementsUntilResync(player.getSetbackTeleportUtil().safeTeleportPosition.position, !player.likelyExplosions.hasSetbackForThis);
+                        player.getSetbackTeleportUtil().executeViolationSetback(!player.likelyExplosions.hasSetbackForThis);
                     }
                 }
 
@@ -162,13 +167,16 @@ public class ExplosionHandler extends PacketCheck {
         }
     }
 
-    public VelocityData getPossibleExplosions(int lastTransaction) {
+    public VelocityData getPossibleExplosions(int lastTransaction, boolean clear) {
         handleTransactionPacket(lastTransaction);
         if (lastExplosionsKnownTaken == null)
             return null;
 
         VelocityData returnLastExplosion = lastExplosionsKnownTaken;
-        lastExplosionsKnownTaken = null;
+
+        if (clear) {
+            lastExplosionsKnownTaken = null;
+        }
 
         return returnLastExplosion;
     }

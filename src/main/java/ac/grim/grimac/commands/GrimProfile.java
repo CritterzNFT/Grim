@@ -33,29 +33,13 @@ public class GrimProfile extends BaseCommand {
 
         GrimPlayer grimPlayer = GrimAPI.INSTANCE.getPlayerDataManager().getPlayer(target.getPlayer());
         if (grimPlayer == null) {
-            sender.sendMessage(GrimAPI.INSTANCE.getConfigManager().getConfig().getStringElse("player-not-found", "%prefix% &cPlayer is exempt or offline!"));
+            String message = GrimAPI.INSTANCE.getConfigManager().getConfig().getStringElse("player-not-found", "%prefix% &cPlayer is exempt or offline!");
+            sender.sendMessage(MessageUtil.format(message));
             return;
         }
 
-        ClientBrand brand = grimPlayer.checkManager.getPacketCheck(ClientBrand.class);
-        AimProcessor aimProcessor = grimPlayer.checkManager.getRotationCheck(AimProcessor.class);
-
-
-        String hSens = ((int) Math.round(aimProcessor.sensitivityX * 200)) + "";
-        String vSens = ((int) Math.round(aimProcessor.sensitivityY * 200)) + "";
-        String fastMath = !grimPlayer.trigHandler.isVanillaMath() + "";
-        String formattedPing = "" + GrimMath.floor(grimPlayer.getTransactionPing() / 1e6);
-
         for (String message : GrimAPI.INSTANCE.getConfigManager().getConfig().getStringList("profile")) {
-            message = MessageUtil.format(message);
-            message = message.replace("%ping%", formattedPing);
-            message = message.replace("%player%", target.getPlayer().getName());
-            message = message.replace("%version%", grimPlayer.getClientVersion().getReleaseName());
-            message = message.replace("%brand%", brand.getBrand());
-            message = message.replace("%h_sensitivity%", hSens);
-            message = message.replace("%v_sensitivity%", vSens);
-            message = message.replace("%fast_math%", fastMath);
-
+            message = GrimAPI.INSTANCE.getExternalAPI().replaceVariables(grimPlayer, message, true);
             sender.sendMessage(message);
         }
     }

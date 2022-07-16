@@ -10,6 +10,8 @@ import github.scarsz.configuralize.DynamicConfig;
 import lombok.Getter;
 import lombok.Setter;
 import org.bukkit.Bukkit;
+import org.bukkit.ChatColor;
+import org.bukkit.entity.Player;
 
 import java.util.*;
 
@@ -69,47 +71,65 @@ public class PunishmentManager {
         }
     }
 
-    public void handleAlert(GrimPlayer player, String verbose, Check check) {
-        String alertString = "grim sendalert " + GrimAPI.INSTANCE.getConfigManager().getConfig().getStringElse("alerts-format", "%prefix% &f%player% &bfailed &f%check_name% &f(x&c%vl%&f) &7%verbose%");
+    private String replaceAlertPlaceholders(String original, PunishGroup group, Check check, String alertString, String verbose) {
+        // Streams are slow but this isn't a hot path... it's fine.
+        String vl = group.violations.values().stream().filter((e) -> e == check).count() + "";
+
+        original = original.replace("[alert]", alertString);
+        original = original.replace("%check_name%", check.getCheckName());
+        original = original.replace("%vl%", vl);
+        original = original.replace("%verbose%", verbose);
+        original = MessageUtil.format(original);
+        original = GrimAPI.INSTANCE.getExternalAPI().replaceVariables(player, original, true);
+
+        return original;
+    }
+
+    public boolean handleAlert(GrimPlayer player, String verbose, Check check) {
+        String alertString = GrimAPI.INSTANCE.getConfigManager().getConfig().getStringElse("alerts-format", "%prefix% &f%player% &bfailed &f%check_name% &f(x&c%vl%&f) &7%verbose%");
         boolean testMode = GrimAPI.INSTANCE.getConfigManager().getConfig().getBooleanElse("test-mode", false);
+        boolean sentDebug = false;
 
         // Check commands
         for (PunishGroup group : groups) {
             if (group.getChecks().contains(check)) {
                 int violationCount = group.getViolations().size();
-
                 for (ParsedCommand command : group.getCommands()) {
+                    String cmd = replaceAlertPlaceholders(command.getCommand(), group, check, alertString, verbose);
+
+                    // Verbose that prints all flags
+                    if (GrimAPI.INSTANCE.getAlertManager().getEnabledVerbose().size() > 0 && command.command.equals("[alert]")) {
+                        sentDebug = true;
+                        for (Player bukkitPlayer : GrimAPI.INSTANCE.getAlertManager().getEnabledVerbose()) {
+                            bukkitPlayer.sendMessage(cmd);
+                        }
+                        if (GrimAPI.INSTANCE.getConfigManager().getConfig().getBooleanElse("verbose.print-to-console", false)) {
+                            LogUtil.console(cmd); // Print verbose to console
+                        }
+                    }
+
                     if (violationCount >= command.getThreshold()) {
-                        boolean inInterval = command.getInterval() == 0 || violationCount % command.getInterval() == 0;
-
+                        // 0 means execute once
+                        // Any other number means execute every X interval
+                        boolean inInterval = command.getInterval() == 0 ? (command.executeCount == 0) : (violationCount % command.getInterval() == 0);
                         if (inInterval) {
-                            String cmd = command.getCommand();
-
-                            // Streams are slow but this isn't a hot path... it's fine.
-                            String vl = group.violations.values().stream().filter((e) -> e == check).count() + "";
-
-                            cmd = cmd.replace("[alert]", alertString);
-                            cmd = cmd.replace("%check_name%", check.getCheckName());
-                            cmd = cmd.replace("%vl%", vl);
-                            cmd = cmd.replace("%verbose%", verbose);
-
                             CommandExecuteEvent executeEvent = new CommandExecuteEvent(player, check, cmd);
                             Bukkit.getPluginManager().callEvent(executeEvent);
                             if (executeEvent.isCancelled()) continue;
 
-                            if (cmd.equals("[webhook]")) {
+                            if (command.command.equals("[webhook]")) {
+                                String vl = group.violations.values().stream().filter((e) -> e == check).count() + "";
                                 GrimAPI.INSTANCE.getDiscordManager().sendAlert(player, verbose, check.getCheckName(), vl);
                                 continue;
                             }
 
-                            if (player.bukkitPlayer != null) {
-                                cmd = cmd.replace("%player%", player.bukkitPlayer.getName());
-                            }
-
-                            if (testMode && cmd.contains("grim sendalert")) { // secret test mode
-                                cmd = MessageUtil.format(cmd);
-                                player.user.sendMessage(cmd.replace("grim sendalert ", ""));
-                                continue;
+                            if (command.command.equals("[alert]")) {
+                                sentDebug = true;
+                                if (testMode) { // secret test mode
+                                    player.user.sendMessage(cmd);
+                                    continue;
+                                }
+                                cmd = "grim sendalert " + cmd; // Not test mode, we can add the command prefix
                             }
 
                             String finalCmd = cmd;
@@ -121,6 +141,7 @@ public class PunishmentManager {
                 }
             }
         }
+        return sentDebug;
     }
 
     public void handleViolation(Check check) {

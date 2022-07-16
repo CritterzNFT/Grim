@@ -36,7 +36,6 @@ import com.github.retrooper.packetevents.protocol.player.GameMode;
 import com.github.retrooper.packetevents.protocol.world.states.WrappedBlockState;
 import com.github.retrooper.packetevents.protocol.world.states.defaulttags.BlockTags;
 import com.github.retrooper.packetevents.protocol.world.states.type.StateTypes;
-import org.bukkit.Bukkit;
 import org.bukkit.util.Vector;
 
 public class MovementCheckRunner extends PositionCheck {
@@ -55,10 +54,15 @@ public class MovementCheckRunner extends PositionCheck {
         // This teleport wasn't valid as the player STILL hasn't loaded this damn chunk.
         // Keep re-teleporting until they load the chunk!
         if (player.getSetbackTeleportUtil().insideUnloadedChunk()) {
-            if (player.compensatedEntities.getSelf().inVehicle()) return;
-
             player.lastOnGround = player.clientClaimsLastOnGround; // Stop a false on join
-            if (player.getSetbackTeleportUtil().getRequiredSetBack() == null) return; // Not spawned yet
+
+            // The player doesn't control this vehicle, we don't care
+            if (player.compensatedEntities.getSelf().inVehicle() &&
+                    (PacketEvents.getAPI().getServerManager().getVersion().isOlderThan(ServerVersion.V_1_9) ||
+                    player.getClientVersion().isOlderThan(ClientVersion.V_1_9))) {
+                return;
+            }
+
             if (!data.isTeleport()) {
                 // Teleport the player back to avoid players being able to simply ignore transactions
                 player.getSetbackTeleportUtil().executeForceResync();
@@ -116,10 +120,10 @@ public class MovementCheckRunner extends PositionCheck {
         // Update knockback and explosions after getting the vehicle
         int kbEntityId = player.compensatedEntities.getSelf().inVehicle() ? player.getRidingVehicleId() : player.entityID;
         player.firstBreadKB = player.checkManager.getKnockbackHandler().calculateFirstBreadKnockback(kbEntityId, player.lastTransactionReceived.get());
-        player.likelyKB = player.checkManager.getKnockbackHandler().calculateRequiredKB(kbEntityId, player.lastTransactionReceived.get());
+        player.likelyKB = player.checkManager.getKnockbackHandler().calculateRequiredKB(kbEntityId, player.lastTransactionReceived.get(), true);
 
         player.firstBreadExplosion = player.checkManager.getExplosionHandler().getFirstBreadAddedExplosion(player.lastTransactionReceived.get());
-        player.likelyExplosions = player.checkManager.getExplosionHandler().getPossibleExplosions(player.lastTransactionReceived.get());
+        player.likelyExplosions = player.checkManager.getExplosionHandler().getPossibleExplosions(player.lastTransactionReceived.get(), true);
 
         if (update.isTeleport()) {
             handleTeleport(update);
@@ -275,7 +279,7 @@ public class MovementCheckRunner extends PositionCheck {
 
             // For whatever reason the vehicle move packet occurs AFTER the player changes slots...
             if (player.compensatedEntities.getSelf().getRiding() instanceof PacketEntityRideable) {
-                EntityControl control = ((EntityControl) player.checkManager.getPostPredictionCheck(EntityControl.class));
+                EntityControl control = player.checkManager.getPostPredictionCheck(EntityControl.class);
 
                 ItemType requiredItem = player.compensatedEntities.getSelf().getRiding().type == EntityTypes.PIG ? ItemTypes.CARROT_ON_A_STICK : ItemTypes.WARPED_FUNGUS_ON_A_STICK;
                 ItemStack mainHand = player.getInventory().getHeldItem();
@@ -341,13 +345,6 @@ public class MovementCheckRunner extends PositionCheck {
             player.speed += player.compensatedEntities.hasSprintingAttributeEnabled ? player.speed * 0.3f : 0;
         }
 
-        player.uncertaintyHandler.wasSteppingOnBouncyBlock = player.uncertaintyHandler.isSteppingOnBouncyBlock;
-        player.uncertaintyHandler.isSteppingOnSlime = false;
-        player.uncertaintyHandler.isSteppingOnBouncyBlock = false;
-        player.uncertaintyHandler.isSteppingOnIce = false;
-        player.uncertaintyHandler.isSteppingOnHoney = false;
-        player.uncertaintyHandler.isSteppingNearBubbleColumn = false;
-        player.uncertaintyHandler.isSteppingNearScaffolding = false;
 
         SimpleCollisionBox steppingOnBB = GetBoundingBox.getCollisionBoxForPlayer(player, player.x, player.y, player.z).expand(0.03).offset(0, -1, 0);
         Collisions.hasMaterial(player, steppingOnBB, (pair) -> {
@@ -380,7 +377,6 @@ public class MovementCheckRunner extends PositionCheck {
 
         player.uncertaintyHandler.thisTickSlimeBlockUncertainty = player.uncertaintyHandler.nextTickSlimeBlockUncertainty;
         player.uncertaintyHandler.nextTickSlimeBlockUncertainty = 0;
-        player.couldSkipTick = false;
 
         SimpleCollisionBox expandedBB = GetBoundingBox.getBoundingBoxFromPosAndSize(player.lastX, player.lastY, player.lastZ, 0.001f, 0.001f);
 
@@ -422,7 +418,7 @@ public class MovementCheckRunner extends PositionCheck {
             player.uncertaintyHandler.lastStuckSpeedMultiplier.reset();
         }
 
-        Vector oldClientVel = player.clientVelocity;
+        player.startTickClientVel = player.clientVelocity;
 
         boolean wasChecked = false;
 
@@ -576,6 +572,7 @@ public class MovementCheckRunner extends PositionCheck {
 
         player.uncertaintyHandler.lastMovementWasZeroPointZeroThree = !player.compensatedEntities.getSelf().inVehicle() && player.skippedTickInActualMovement;
         player.uncertaintyHandler.lastMovementWasUnknown003VectorReset = !player.compensatedEntities.getSelf().inVehicle() && player.couldSkipTick && player.predictedVelocity.isKnockback();
+        player.couldSkipTick = false;
 
         if (player.skippedTickInActualMovement) {
             player.uncertaintyHandler.lastPointThree.reset();
@@ -601,7 +598,7 @@ public class MovementCheckRunner extends PositionCheck {
 
         player.checkManager.getKnockbackHandler().handlePlayerKb(offset);
         player.checkManager.getExplosionHandler().handlePlayerExplosion(offset);
-        player.trigHandler.setOffset(oldClientVel, offset);
+        player.trigHandler.setOffset(offset);
         player.pointThreeEstimator.endOfTickTick();
     }
 

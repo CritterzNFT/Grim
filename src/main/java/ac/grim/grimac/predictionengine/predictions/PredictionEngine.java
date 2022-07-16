@@ -197,8 +197,8 @@ public class PredictionEngine {
                 bestInput = resultAccuracy;
             }
 
-            // Close enough, there's no reason to continue our predictions.
-            if (bestInput < 1e-5 * 1e-5) {
+            // Close enough, there's no reason to continue our predictions (if either kb or explosion will flag, continue searching)
+            if (bestInput < 1e-5 * 1e-5 && !player.checkManager.getKnockbackHandler().wouldFlag() && !player.checkManager.getExplosionHandler().wouldFlag()) {
                 break;
             }
         }
@@ -312,6 +312,11 @@ public class PredictionEngine {
 
     public void addFluidPushingToStartingVectors(GrimPlayer player, Set<VectorData> data) {
         for (VectorData vectorData : data) {
+            // Sneaking in water
+            if (vectorData.isKnockback() && player.baseTickAddition.lengthSquared() != 0) {
+                vectorData.vector = vectorData.vector.add(player.baseTickAddition);
+            }
+            // Water pushing movement is affected by initial velocity due to 0.003 eating pushing in the past
             if (vectorData.isKnockback() && player.baseTickWaterPushing.lengthSquared() != 0) {
                 if (player.getClientVersion().isNewerThanOrEquals(ClientVersion.V_1_13)) {
                     Vector vec3 = player.baseTickWaterPushing.clone();
@@ -534,6 +539,7 @@ public class PredictionEngine {
             minVector.setY(minVector.getY() - 0.08);
         }
 
+
         // Hidden slime block bounces by missing idle tick and 0.03
         if (player.actualMovement.getY() >= 0 && player.uncertaintyHandler.influencedByBouncyBlock()) {
             if (player.uncertaintyHandler.thisTickSlimeBlockUncertainty != 0 && !vector.isJump()) { // jumping overrides slime block
@@ -550,6 +556,19 @@ public class PredictionEngine {
 
         SimpleCollisionBox box = new SimpleCollisionBox(minVector, maxVector);
         box.sort();
+
+        // https://github.com/MWHunter/Grim/issues/398
+        // Thank mojang for removing the idle packet resulting in this hacky mess
+
+        double levitation = player.pointThreeEstimator.positiveLevitation(maxVector.getY());
+        box.combineToMinimum(box.minX, levitation, box.minZ);
+        levitation = player.pointThreeEstimator.positiveLevitation(minVector.getY());
+        box.combineToMinimum(box.minX, levitation, box.minZ);
+        levitation = player.pointThreeEstimator.negativeLevitation(maxVector.getY());
+        box.combineToMinimum(box.minX, levitation, box.minZ);
+        levitation = player.pointThreeEstimator.negativeLevitation(minVector.getY());
+        box.combineToMinimum(box.minX, levitation, box.minZ);
+
 
         SneakingEstimator sneaking = player.checkManager.getPostPredictionCheck(SneakingEstimator.class);
         box.minX += sneaking.getSneakingPotentialHiddenVelocity().minX;
@@ -582,6 +601,18 @@ public class PredictionEngine {
         if (player.uncertaintyHandler.stuckOnEdge.hasOccurredSince(0) || player.uncertaintyHandler.isSteppingOnSlime) {
             // Avoid changing Y axis
             box.expandToAbsoluteCoordinates(0, box.maxY, 0);
+        }
+
+
+        // Likely stepping movement, avoid changing 0.03 related movement
+        // Piston gets priority over this code
+        //
+        //
+        // This shouldn't matter if the vector is going upwards or at precisely 0 because then
+        // the player couldn't be on the ground anyways...
+        if (player.clientControlledVerticalCollision && vector.vector.getY() < 0) {
+            box.minY = vector.vector.getY();
+            box.maxY = vector.vector.getY();
         }
 
         // Alright, so hard lerping entities are a pain to support.
@@ -621,7 +652,8 @@ public class PredictionEngine {
         }
 
         // Handle missing a tick with friction in vehicles
-        if (player.uncertaintyHandler.lastVehicleSwitch.hasOccurredSince(1) && !player.uncertaintyHandler.lastVehicleSwitch.hasOccurredSince(0)) {
+        // TODO: Attempt to fix mojang's netcode here
+        if (player.uncertaintyHandler.lastVehicleSwitch.hasOccurredSince(1)) {
             double trueFriction = player.lastOnGround ? player.friction * 0.91 : 0.91;
             if (player.wasTouchingLava) trueFriction = 0.5;
             if (player.wasTouchingWater) trueFriction = 0.96;
@@ -643,16 +675,6 @@ public class PredictionEngine {
 
         minVector = box.min();
         maxVector = box.max();
-
-        // Likely stepping movement, avoid changing 0.03 related movement
-        // Piston gets priority over this code
-        //
-        // This shouldn't matter if the vector is going upwards or at precisely 0 because then
-        // the player couldn't be on the ground anyways...
-        if (player.clientControlledVerticalCollision && vector.vector.getY() < 0) {
-            minVector.setY(vector.vector.getY());
-            maxVector.setY(vector.vector.getY());
-        }
 
         if (pistonX != 0) {
             minVector.setX(Math.min(minVector.getX() - pistonX, pistonX));

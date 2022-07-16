@@ -17,6 +17,7 @@ import lombok.Getter;
 import lombok.Setter;
 import org.bukkit.util.Vector;
 
+import java.util.HashSet;
 import java.util.Set;
 
 /**
@@ -101,9 +102,8 @@ public class PointThreeEstimator {
     private boolean isNearVerticalFlowingLiquid = false; // We can't calculate exact values, once again a toggle
     private boolean isNearBubbleColumn = false; // We can't calculate exact values once again
 
-    private boolean hasPositiveLevitation = false; // Positive potion effects [0, 128]
-    private boolean hasNegativeLevitation = false; // Negative potion effects [-127, -1]
-    private boolean didLevitationChange = false; // We can't predict with an unknown amount of ticks between a levitation change
+    private int maxPositiveLevitation = Integer.MIN_VALUE; // Positive potion effects [0, 128]
+    private int minNegativeLevitation = Integer.MAX_VALUE; // Negative potion effects [-127, -1]r
 
     @Setter
     @Getter
@@ -148,8 +148,34 @@ public class PointThreeEstimator {
         }
 
         if (pointThreeBox.isIntersected(new SimpleCollisionBox(x, y, z))) {
+            // https://github.com/MWHunter/Grim/issues/613
+            int controllingEntityId = player.compensatedEntities.getSelf().inVehicle() ? player.getRidingVehicleId() : player.entityID;
+            player.firstBreadKB = player.checkManager.getKnockbackHandler().calculateFirstBreadKnockback(controllingEntityId, player.lastTransactionReceived.get());
+            player.likelyKB = player.checkManager.getKnockbackHandler().calculateRequiredKB(controllingEntityId, player.lastTransactionReceived.get(), false);
+
+            player.firstBreadExplosion = player.checkManager.getExplosionHandler().getFirstBreadAddedExplosion(player.lastTransactionReceived.get());
+            player.likelyExplosions = player.checkManager.getExplosionHandler().getPossibleExplosions(player.lastTransactionReceived.get(), false);
+
+            Set<VectorData> knockback = new HashSet<>();
+            if (player.firstBreadKB != null) knockback.add(new VectorData(player.firstBreadKB.vector, VectorData.VectorType.Knockback));
+            if (player.likelyKB != null) knockback.add(new VectorData(player.likelyKB.vector, VectorData.VectorType.Knockback));
+
+            boolean kbPointThree = determineCanSkipTick(BlockProperties.getFrictionInfluencedSpeed((float) (player.speed * (player.isSprinting ? 1.3 : 1)), player), knockback);
+            player.checkManager.getKnockbackHandler().setPointThree(kbPointThree);
+
+            Set<VectorData> explosion = new HashSet<>();
+            if (player.firstBreadExplosion != null) explosion.add(new VectorData(player.firstBreadExplosion.vector, VectorData.VectorType.Explosion));
+            if (player.likelyExplosions != null) explosion.add(new VectorData(player.likelyExplosions.vector, VectorData.VectorType.Explosion));
+
+            boolean explosionPointThree = determineCanSkipTick(BlockProperties.getFrictionInfluencedSpeed((float) (player.speed * (player.isSprinting ? 1.3 : 1)), player), explosion);
+            player.checkManager.getExplosionHandler().setPointThree(explosionPointThree);
+
             if (!player.couldSkipTick) {
                 player.couldSkipTick = determineCanSkipTick(BlockProperties.getFrictionInfluencedSpeed((float) (player.speed * (player.isSprinting ? 1.3 : 1)), player), player.getPossibleVelocitiesMinusKnockback());
+            }
+
+            if (kbPointThree || explosionPointThree || player.couldSkipTick) {
+                player.uncertaintyHandler.lastPointThree.reset();
             }
         }
 
@@ -163,7 +189,17 @@ public class PointThreeEstimator {
      * and to just give them lenience
      */
     public boolean canPredictNextVerticalMovement() {
-        return !gravityChanged && !didLevitationChange;
+        return !gravityChanged && maxPositiveLevitation == Integer.MIN_VALUE && minNegativeLevitation == Integer.MAX_VALUE;
+    }
+
+    public double positiveLevitation(double y) {
+        if (maxPositiveLevitation == Integer.MIN_VALUE) return y;
+        return (0.05 * (maxPositiveLevitation + 1) - y * 0.2);
+    }
+
+    public double negativeLevitation(double y) {
+        if (minNegativeLevitation == Integer.MAX_VALUE) return y;
+        return (0.05 * (minNegativeLevitation + 1) - y * 0.2);
     }
 
     public boolean controlsVerticalMovement() {
@@ -172,15 +208,8 @@ public class PointThreeEstimator {
 
     public void updatePlayerPotions(PotionType potion, Integer level) {
         if (potion == PotionTypes.LEVITATION) {
-            boolean oldPositiveLevitation = hasPositiveLevitation;
-            boolean oldNegativeLevitation = hasNegativeLevitation;
-
-            hasPositiveLevitation = hasPositiveLevitation || (level != null && level >= 0);
-            hasNegativeLevitation = hasNegativeLevitation || (level != null && level < 0);
-
-            if (oldPositiveLevitation != hasPositiveLevitation || oldNegativeLevitation != hasNegativeLevitation) {
-                didLevitationChange = true;
-            }
+            maxPositiveLevitation = Math.max(level == null ? Integer.MIN_VALUE : level, maxPositiveLevitation);
+            minNegativeLevitation = Math.min(level == null ? Integer.MAX_VALUE : level, minNegativeLevitation);
         }
     }
 
@@ -210,15 +239,8 @@ public class PointThreeEstimator {
 
         checkNearbyBlocks(pointThreeBox);
 
-        Integer levitationAmplifier = player.compensatedEntities.getLevitationAmplifier();
-
-        boolean oldPositiveLevitation = hasPositiveLevitation;
-        boolean oldNegativeLevitation = hasNegativeLevitation;
-
-        hasPositiveLevitation = levitationAmplifier != null && levitationAmplifier >= 0;
-        hasNegativeLevitation = levitationAmplifier != null && levitationAmplifier < 0;
-
-        didLevitationChange = oldPositiveLevitation != hasPositiveLevitation || oldNegativeLevitation != hasNegativeLevitation;
+        maxPositiveLevitation = Integer.MIN_VALUE;
+        minNegativeLevitation = Integer.MAX_VALUE;
 
         isGliding = player.isGliding;
         gravityChanged = false;
@@ -408,7 +430,7 @@ public class PointThreeEstimator {
 
             // We aren't making progress, avoid infinite loop (This can be due to the player not having gravity)
             if (yVel == 0) break;
-        } while (Math.abs(maxYTraveled + vector.vector.getY()) < player.getMovementThreshold());
+        } while (Math.abs(maxYTraveled + vector.vector.getY()) < player.getMovementThreshold()); // Account for uncertainty, don't stop until we simulate past uncertainty point
 
         if (maxYTraveled != 0) {
             wasAlwaysCertain = false;

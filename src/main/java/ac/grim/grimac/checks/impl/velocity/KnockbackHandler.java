@@ -67,7 +67,7 @@ public class KnockbackHandler extends PacketCheck {
         firstBreadMap.add(new VelocityData(entityID, breadOne, player.getSetbackTeleportUtil().isSendingSetback, knockback));
     }
 
-    public VelocityData calculateRequiredKB(int entityID, int transaction) {
+    public VelocityData calculateRequiredKB(int entityID, int transaction, boolean clear) {
         tickKnockback(transaction);
 
         VelocityData returnLastKB = null;
@@ -76,7 +76,9 @@ public class KnockbackHandler extends PacketCheck {
                 returnLastKB = data;
         }
 
-        lastKnockbackKnownTaken.clear();
+        if (clear) {
+            lastKnockbackKnownTaken.clear();
+        }
 
         return returnLastKB;
     }
@@ -168,10 +170,10 @@ public class KnockbackHandler extends PacketCheck {
         if (player.likelyKB != null) {
             if (player.likelyKB.offset > offsetToFlag) {
                 if (player.likelyKB.isSetback) { // Don't increase violations if this velocity was setback, just teleport and resend them velocity.
-                    player.getSetbackTeleportUtil().blockMovementsUntilResync(player.getSetbackTeleportUtil().safeTeleportPosition.position, !player.likelyKB.hasSetbackForThis);
+                    player.getSetbackTeleportUtil().executeViolationSetback(!player.likelyKB.hasSetbackForThis);
                 } else if (flag()) { // This velocity was sent by the server.
                     if (getViolations() > setbackVL) {
-                        player.getSetbackTeleportUtil().blockMovementsUntilResync(player.getSetbackTeleportUtil().safeTeleportPosition.position, !player.likelyKB.hasSetbackForThis);
+                        player.getSetbackTeleportUtil().executeViolationSetback(!player.likelyKB.hasSetbackForThis);
                     }
 
                     String formatOffset = "o: " + formatOffset(player.likelyKB.offset);
@@ -186,6 +188,10 @@ public class KnockbackHandler extends PacketCheck {
                 }
             }
         }
+    }
+
+    public boolean wouldFlag() {
+        return (player.likelyKB != null && player.likelyKB.offset > offsetToFlag) || (player.firstBreadKB != null && player.firstBreadKB.offset > offsetToFlag);
     }
 
     public VelocityData calculateFirstBreadKnockback(int entityID, int transaction) {
