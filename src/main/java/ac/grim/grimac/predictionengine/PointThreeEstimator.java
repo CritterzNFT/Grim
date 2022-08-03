@@ -7,6 +7,7 @@ import ac.grim.grimac.utils.collisions.datatypes.CollisionBox;
 import ac.grim.grimac.utils.collisions.datatypes.SimpleCollisionBox;
 import ac.grim.grimac.utils.data.VectorData;
 import ac.grim.grimac.utils.nmsutil.*;
+import com.github.retrooper.packetevents.protocol.item.type.ItemTypes;
 import com.github.retrooper.packetevents.protocol.player.ClientVersion;
 import com.github.retrooper.packetevents.protocol.potion.PotionType;
 import com.github.retrooper.packetevents.protocol.potion.PotionTypes;
@@ -17,7 +18,6 @@ import lombok.Getter;
 import lombok.Setter;
 import org.bukkit.util.Vector;
 
-import java.util.HashSet;
 import java.util.Set;
 
 /**
@@ -151,35 +151,20 @@ public class PointThreeEstimator {
             // https://github.com/MWHunter/Grim/issues/613
             int controllingEntityId = player.compensatedEntities.getSelf().inVehicle() ? player.getRidingVehicleId() : player.entityID;
             player.firstBreadKB = player.checkManager.getKnockbackHandler().calculateFirstBreadKnockback(controllingEntityId, player.lastTransactionReceived.get());
-            player.likelyKB = player.checkManager.getKnockbackHandler().calculateRequiredKB(controllingEntityId, player.lastTransactionReceived.get(), false);
+            player.likelyKB = player.checkManager.getKnockbackHandler().calculateRequiredKB(controllingEntityId, player.lastTransactionReceived.get());
 
             player.firstBreadExplosion = player.checkManager.getExplosionHandler().getFirstBreadAddedExplosion(player.lastTransactionReceived.get());
-            player.likelyExplosions = player.checkManager.getExplosionHandler().getPossibleExplosions(player.lastTransactionReceived.get(), false);
+            player.likelyExplosions = player.checkManager.getExplosionHandler().getPossibleExplosions(player.lastTransactionReceived.get());
 
-            Set<VectorData> knockback = new HashSet<>();
-            if (player.firstBreadKB != null) knockback.add(new VectorData(player.firstBreadKB.vector, VectorData.VectorType.Knockback));
-            if (player.likelyKB != null) knockback.add(new VectorData(player.likelyKB.vector, VectorData.VectorType.Knockback));
+            player.updateVelocityMovementSkipping();
 
-            boolean kbPointThree = determineCanSkipTick(BlockProperties.getFrictionInfluencedSpeed((float) (player.speed * (player.isSprinting ? 1.3 : 1)), player), knockback);
-            player.checkManager.getKnockbackHandler().setPointThree(kbPointThree);
-
-            Set<VectorData> explosion = new HashSet<>();
-            if (player.firstBreadExplosion != null) explosion.add(new VectorData(player.firstBreadExplosion.vector, VectorData.VectorType.Explosion));
-            if (player.likelyExplosions != null) explosion.add(new VectorData(player.likelyExplosions.vector, VectorData.VectorType.Explosion));
-
-            boolean explosionPointThree = determineCanSkipTick(BlockProperties.getFrictionInfluencedSpeed((float) (player.speed * (player.isSprinting ? 1.3 : 1)), player), explosion);
-            player.checkManager.getExplosionHandler().setPointThree(explosionPointThree);
-
-            if (!player.couldSkipTick) {
-                player.couldSkipTick = determineCanSkipTick(BlockProperties.getFrictionInfluencedSpeed((float) (player.speed * (player.isSprinting ? 1.3 : 1)), player), player.getPossibleVelocitiesMinusKnockback());
-            }
-
-            if (kbPointThree || explosionPointThree || player.couldSkipTick) {
+            if (player.couldSkipTick) {
                 player.uncertaintyHandler.lastPointThree.reset();
             }
         }
 
-        if (!player.compensatedEntities.getSelf().inVehicle() && (state.getType() == StateTypes.POWDER_SNOW || Materials.isClimbable(state.getType())) && pointThreeBox.isIntersected(new SimpleCollisionBox(x, y, z))) {
+        if (!player.compensatedEntities.getSelf().inVehicle() && ((state.getType() == StateTypes.POWDER_SNOW && player.getInventory().getBoots().getType() == ItemTypes.LEATHER_BOOTS)
+                || Materials.isClimbable(state.getType())) && pointThreeBox.isIntersected(new SimpleCollisionBox(x, y, z))) {
             isNearClimbable = true;
         }
     }
@@ -203,7 +188,8 @@ public class PointThreeEstimator {
     }
 
     public boolean controlsVerticalMovement() {
-        return isNearFluid || isNearClimbable || isNearHorizontalFlowingLiquid || isNearVerticalFlowingLiquid || isNearBubbleColumn || isGliding || player.uncertaintyHandler.influencedByBouncyBlock();
+        return isNearFluid || isNearClimbable || isNearHorizontalFlowingLiquid || isNearVerticalFlowingLiquid || isNearBubbleColumn || isGliding || player.uncertaintyHandler.influencedByBouncyBlock()
+                || player.checkManager.getKnockbackHandler().isKnockbackPointThree() || player.checkManager.getExplosionHandler().isExplosionPointThree();
     }
 
     public void updatePlayerPotions(PotionType potion, Integer level) {
@@ -259,7 +245,7 @@ public class PointThreeEstimator {
         // Check for flowing water
         Collisions.hasMaterial(player, pointThreeBox, (pair) -> {
             WrappedBlockState state = pair.getFirst();
-            if (Materials.isClimbable(state.getType()) || (state.getType() == StateTypes.POWDER_SNOW && !player.compensatedEntities.getSelf().inVehicle())) {
+            if (Materials.isClimbable(state.getType()) || (state.getType() == StateTypes.POWDER_SNOW && !player.compensatedEntities.getSelf().inVehicle() && player.getInventory().getBoots().getType() == ItemTypes.LEATHER_BOOTS)) {
                 isNearClimbable = true;
             }
 

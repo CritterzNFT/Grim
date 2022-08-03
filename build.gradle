@@ -19,17 +19,21 @@ publishing {
 repositories {
     mavenLocal()
     maven { url = 'https://hub.spigotmc.org/nexus/content/repositories/snapshots/' } // Bstats, Spigot
-    maven { url = 'https://jitpack.io/' } // PacketEvents
+    maven { url = 'https://jitpack.io/' } // Grim API
     maven { url = 'https://repo.viaversion.com' } // ViaVersion
     maven { url = "https://repo.aikar.co/content/groups/aikar/" } // ACF
     maven { url = "https://nexus.scarsz.me/content/groups/public" } // Configuralize
     maven { url = "https://clojars.org/repo" } // MultiPaper MultiLib
     maven { url = "https://repo.opencollab.dev/maven-snapshots/" } // Floodgate
+    maven {
+        name = 'codemc-snapshots'
+        url = 'https://repo.codemc.io/repository/maven-snapshots/'
+    } // PacketEvents
     mavenCentral() // FastUtil, Discord-Webhooks, Lombok
 }
 
 dependencies {
-    implementation 'com.github.retrooper.packetevents:spigot:2.0-SNAPSHOT'
+    implementation 'com.github.retrooper.packetevents:spigot:2.0.0-SNAPSHOT'
     implementation 'co.aikar:acf-paper:0.5.1-SNAPSHOT'
     implementation 'org.bstats:bstats-bukkit:3.0.0'
     implementation 'club.minnced:discord-webhooks:0.8.0'
@@ -53,7 +57,7 @@ dependencies {
 }
 
 group = 'ac.grim.grimac'
-version = '2.3.12'
+version = '2.3.21'
 description = 'GrimAC'
 java.sourceCompatibility = JavaVersion.VERSION_1_8
 java.targetCompatibility = JavaVersion.VERSION_1_8

@@ -84,7 +84,6 @@ public class PacketPlayerRespawn extends PacketListenerAbstract {
 
             // TODO: What does keep all metadata do?
             player.latencyUtils.addRealTimeTask(player.lastTransactionSent.get() + 1, () -> {
-                // Client creates a new entity on respawn
                 player.isSneaking = false;
                 player.lastOnGround = false;
                 player.packetStateData.packetPlayerOnGround = false; // If somewhere else pulls last ground to fix other issues
@@ -100,6 +99,7 @@ public class PacketPlayerRespawn extends PacketListenerAbstract {
                     player.compensatedWorld.activePistons.clear();
                     player.compensatedWorld.openShulkerBoxes.clear();
                     player.compensatedWorld.chunks.clear();
+                    player.compensatedWorld.isRaining = false;
                 }
                 player.dimension = respawn.getDimension();
 
