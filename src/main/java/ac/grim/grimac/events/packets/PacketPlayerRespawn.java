@@ -37,6 +37,15 @@ public class PacketPlayerRespawn extends PacketListenerAbstract {
 
             GrimPlayer player = GrimAPI.INSTANCE.getPlayerDataManager().getPlayer(event.getUser());
             if (player == null) return;
+            //
+            if (player.packetStateData.lastFood == health.getFood()
+                    && player.packetStateData.lastHealth == health.getHealth()
+                    && player.packetStateData.lastSaturation == health.getFoodSaturation()
+                    && PacketEvents.getAPI().getServerManager().getVersion().isOlderThan(ServerVersion.V_1_9)) return;
+
+            player.packetStateData.lastFood = health.getFood();
+            player.packetStateData.lastHealth = health.getHealth();
+            player.packetStateData.lastSaturation = health.getFoodSaturation();
 
             player.sendTransaction();
 
@@ -50,8 +59,6 @@ public class PacketPlayerRespawn extends PacketListenerAbstract {
                 player.latencyUtils.addRealTimeTask(player.lastTransactionSent.get(), () -> player.compensatedEntities.getSelf().isDead = true);
             } else {
                 player.latencyUtils.addRealTimeTask(player.lastTransactionSent.get() + 1, () -> player.compensatedEntities.getSelf().isDead = false);
-                player.latencyUtils.addRealTimeTask(player.lastTransactionSent.get(), () -> player.packetStateData.slowedByUsingItem = false);
-                player.latencyUtils.addRealTimeTask(player.lastTransactionSent.get() + 1, () -> player.packetStateData.slowedByUsingItem = false);
             }
 
             event.getPostTasks().add(player::sendTransaction);
@@ -94,7 +101,7 @@ public class PacketPlayerRespawn extends PacketListenerAbstract {
                 player.checkManager.getPacketCheck(BadPacketsE.class).handleRespawn(); // Reminder ticks reset
 
                 // EVERYTHING gets reset on a cross dimensional teleport, clear chunks and entities!
-                if (!respawn.getDimension().getDimensionName().equals(player.dimension.getDimensionName()) || !Objects.equals(respawn.getDimension().getAttributes(), player.dimension.getAttributes())) {
+                if (respawn.getDimension().getId() != player.dimension.getId() || !Objects.equals(respawn.getDimension().getDimensionName(), player.dimension.getDimensionName()) || !Objects.equals(respawn.getDimension().getAttributes(), player.dimension.getAttributes())) {
                     player.compensatedEntities.entityMap.clear();
                     player.compensatedWorld.activePistons.clear();
                     player.compensatedWorld.openShulkerBoxes.clear();
@@ -117,7 +124,9 @@ public class PacketPlayerRespawn extends PacketListenerAbstract {
                 player.pose = Pose.STANDING;
                 player.clientVelocity = new Vector();
                 player.gamemode = respawn.getGameMode();
-                player.compensatedWorld.setDimension(respawn.getDimension().getDimensionName(), event.getUser());
+                if (PacketEvents.getAPI().getServerManager().getVersion().isNewerThanOrEquals(ServerVersion.V_1_17)) {
+                    player.compensatedWorld.setDimension(respawn.getDimension().getDimensionName(), event.getUser());
+                }
             });
         }
     }
